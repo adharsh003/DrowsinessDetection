@@ -1,76 +1,99 @@
 import cv2
-from playsound import playsound
 import dlib
 from scipy.spatial import distance as dist
+from playsound import playsound
+import numpy as np
+from collections import deque
 
-# Load the Haar cascades for face and eye detection
-face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-eye_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_eye.xml')
+# Constants for thresholds and frame count
+EAR_THRESHOLD = 0.25
+MAR_THRESHOLD = 0.5
+DOWNWARD_TILT_THRESHOLD = 20  # degrees (head looking downward)
+FRAME_COUNT_THRESHOLD = 20  # Consecutive frames for confirmation
 
-# Load the shape predictor for yawning detection
-predictor_path = "shape_predictor_68_face_landmarks.dat"
-predictor = dlib.shape_predictor(predictor_path)
-detector = dlib.get_frontal_face_detector()
+# Initialize dlib's face detector and facial landmark predictor
+face_detector = dlib.get_frontal_face_detector()
+landmark_predictor = dlib.shape_predictor("shape_predictor_68_face_landmarks.dat")
 
-# Function to calculate the mouth aspect ratio (MAR) for yawning detection
+# Buffers for multi-frame analysis
+ear_buffer = deque(maxlen=FRAME_COUNT_THRESHOLD)
+mar_buffer = deque(maxlen=FRAME_COUNT_THRESHOLD)
+tilt_buffer = deque(maxlen=FRAME_COUNT_THRESHOLD)
+
+# Functions to calculate EAR, MAR, and downward head tilt
+def eye_aspect_ratio(eye):
+    A = dist.euclidean(eye[1], eye[5])
+    B = dist.euclidean(eye[2], eye[4])
+    C = dist.euclidean(eye[0], eye[3])
+    return (A + B) / (2.0 * C)
+
 def mouth_aspect_ratio(mouth):
     A = dist.euclidean(mouth[2], mouth[10])
     B = dist.euclidean(mouth[4], mouth[8])
     C = dist.euclidean(mouth[0], mouth[6])
-    mar = (A + B) / (2.0 * C)
-    return mar
+    return (A + B) / (2.0 * C)
 
-# Initialize the webcam (0 means the default webcam)
+def downward_head_tilt(landmarks):
+    nose = np.array(landmarks[30])  # Nose tip
+    left_eye = np.array(landmarks[36])  # Left eye corner
+    right_eye = np.array(landmarks[45])  # Right eye corner
+
+    # Calculate the horizontal eye line center
+    eye_center = (left_eye + right_eye) / 2
+    vector = nose - eye_center
+    angle = np.arctan2(vector[1], vector[0]) * (180.0 / np.pi)
+    
+    # Downward tilt detection (negative angles indicate downward tilt)
+    return angle if vector[1] > 0 else 0  # Only consider downward tilt
+
+# Open webcam
 cap = cv2.VideoCapture(0)
-
-# Check if the webcam is opened successfully
 if not cap.isOpened():
     print("Error: Could not open webcam.")
     exit()
 
 while True:
-    ret, frame = cap.read()  # Capture frame-by-frame
+    ret, frame = cap.read()
     if not ret:
-        print("Error: Failed to capture frame.")
         break
 
-    # Convert the frame to grayscale for better detection
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    faces = face_detector(gray)
 
-    # Detect faces in the image
-    faces = face_cascade.detectMultiScale(gray, 1.1, 4)
+    for face in faces:
+        landmarks = landmark_predictor(gray, face)
+        landmarks = np.array([(p.x, p.y) for p in landmarks.parts()])
 
-    # Detect yawning using dlib and calculate mouth aspect ratio
-    gray_dlib = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    faces_dlib = detector(gray_dlib)
-    
-    for face in faces_dlib:
-        shape = predictor(gray_dlib, face)
-        landmarks = [(p.x, p.y) for p in shape.parts()]
+        # Compute EAR, MAR, and downward tilt
+        left_eye = landmarks[42:48]
+        right_eye = landmarks[36:42]
         mouth = landmarks[48:68]
 
+        ear = (eye_aspect_ratio(left_eye) + eye_aspect_ratio(right_eye)) / 2.0
         mar = mouth_aspect_ratio(mouth)
-        if mar > 0.5:  # Threshold for detecting yawning
-            print("Yawning detected!")
-            playsound('audio/alarm.mp3')  # Play the alarm sound
+        tilt = downward_head_tilt(landmarks)
 
-    # Draw a rectangle around each face and detect eyes within the face region
-    for (x, y, w, h) in faces:
-        cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 0), 2)
-        roi_gray = gray[y:y + h, x:x + w]
-        eyes = eye_cascade.detectMultiScale(roi_gray)
-        for (ex, ey, ew, eh) in eyes:
-            cv2.rectangle(frame, (x + ex, y + ey), (x + ex + ew, y + ey + eh), (0, 255, 0), 2)
+        # Buffer-based analysis
+        ear_buffer.append(ear)
+        mar_buffer.append(mar)
+        tilt_buffer.append(tilt)
 
-    # Display the resulting frame
-    cv2.imshow("Webcam Feed", frame)
+        avg_ear = np.mean(ear_buffer)
+        avg_mar = np.mean(mar_buffer)
+        avg_tilt = np.mean(tilt_buffer)
 
-    # Check if a key is pressed
-    key = cv2.waitKey(1) & 0xFF
+        # Detect drowsiness if thresholds are crossed
+        if avg_ear < EAR_THRESHOLD or avg_mar > MAR_THRESHOLD or avg_tilt > DOWNWARD_TILT_THRESHOLD:
+            if len(ear_buffer) == FRAME_COUNT_THRESHOLD:
+                print("Drowsiness Detected!")
+                playsound("audio/alarm.mp3")
+        else:
+            print("Driver is alert.")
 
-    if key == ord('q'):  # Press 'q' to exit the loop
+    # Display the frame
+    cv2.imshow("Drowsiness Detection", frame)
+    if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
-# Release the webcam and close all windows
 cap.release()
 cv2.destroyAllWindows()
