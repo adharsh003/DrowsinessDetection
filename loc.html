@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auto SOS Alert</title>
+</head>
+<body>
+
+    <h2>Monitoring Driver's Condition...</h2>
+    <p id="status">Waiting for drowsiness detection...</p>
+
+    <script>
+       function sendLocation() {
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition((position) => {
+            let lat = position.coords.latitude;
+            let lon = position.coords.longitude;
+            let accuracy = position.coords.accuracy;  // Get accuracy in meters
+
+            fetch("http://127.0.0.1:5000/send_alert", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ latitude: lat, longitude: lon, accuracy: accuracy })
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById("status").innerHTML = "Emergency Alert Sent!";
+            })
+            .catch(error => {
+                document.getElementById("status").innerHTML = "Error sending alert.";
+            });
+
+        }, (error) => {
+            document.getElementById("status").innerHTML = "Error: " + error.message;
+        }, {
+            enableHighAccuracy: true,   // Request high accuracy location
+            timeout: 10000,             // Wait up to 10 seconds
+            maximumAge: 0               // Do not use cached location
+        });
+    } else {
+        document.getElementById("status").innerHTML = "Geolocation not supported.";
+    }
+}
+
+// Automatically send location when page loads (Drowsiness detected)
+window.onload = sendLocation;
+
+
+        // Automatically send location when page loads (Drowsiness detected)
+        window.onload = sendLocation;
+    </script>
+
+</body>
+</html>

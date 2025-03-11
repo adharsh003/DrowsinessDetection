@@ -1,11 +1,10 @@
-#latest
-
 import cv2
 from playsound import playsound
 import dlib
 from scipy.spatial import distance as dist
 import threading
 import time
+import webbrowser
 
 # Load the Haar cascades for face detection
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
@@ -33,7 +32,7 @@ def mouth_aspect_ratio(mouth):
 
 # Function to play alarm sound in a separate thread
 def play_alarm():
-    playsound(r'C:\Users\91859\DrowsinessDetection\audio\alarm.mp3')
+    playsound(r'C:\Users\EDUMALL\OneDrive\Desktop\DrowsinessDetection\audio\alarm.mp3')
 
 # Thresholds
 EAR_THRESHOLD = 0.22  # Lower for stricter eye closure detection
@@ -86,10 +85,11 @@ while True:
         if ear < EAR_THRESHOLD or mar > MAR_THRESHOLD:
             ear_counter += 1
             if ear_counter >= CONSEC_FRAMES and not alarm_on and (current_time - last_alarm_time > COOLDOWN_SECONDS):
-                print("Drowsiness detected!")
+                print("Drowsiness detected! Sending SOS...")
                 alarm_on = True
                 last_alarm_time = current_time
                 threading.Thread(target=play_alarm, daemon=True).start()
+                webbrowser.open(r'C:\Users\EDUMALL\OneDrive\Desktop\DrowsinessDetection\loc.html')  # Open alert webpage
         else:
             ear_counter = 0
             alarm_on = False
